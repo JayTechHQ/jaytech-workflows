@@ -1,0 +1,179 @@
+name: dotnet-release-service
+
+on:
+  workflow_call:
+    inputs:
+      application-name:
+        type: string
+        description: The application name (repository name without api/contract/ui)
+        required: true
+
+      environment-name:
+        type: string
+        description: The keyword used to define your environment repository
+        required: false
+        default: environment
+
+      replacements-in:
+        type: string
+        description: Placeholder keys (tilde-separated ~)
+        required: false
+        default: ""
+
+      repository:
+        type: string
+        description: Repository name; format = [organization]/[repository-name]
+        required: true
+
+      solution-location:
+        type: string
+        description: Relative path to the .sln file
+        required: false
+        default: Source/
+
+      sync-environment:
+        type: string
+        description: Sync the new version with a -environment repository
+        required: false
+        default: "false"
+
+      dotnet-version:
+        type: string
+        description: Specify which .NET version to use
+        required: false
+        default: "9.x"
+
+    secrets:
+      aws-region:
+        description: AWS region
+        required: true
+
+      aws-access-key-id:
+        description: AWS Access Key ID
+        required: true
+
+      aws-secret-access-key:
+        description: AWS Secret Access Key
+        required: true
+
+      azure-api-key:
+        description: Azure API key
+        required: false
+
+      azure-feed:
+        description: Azure Artifacts feed
+        required: false
+
+      azure-source:
+        description: Azure Artifacts source name
+        required: false
+
+      pat-github:
+        description: GitHub PAT
+        required: true
+
+      replacements-out:
+        description: Placeholder values (tilde-separated ~)
+        required: false
+
+jobs:
+  dotnet-release-service:
+    name: dotnet-release-service
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout service repository
+        uses: actions/checkout@v3
+        with:
+          repository: ${{ inputs.repository }}
+          token: ${{ secrets.pat-github }}
+          path: workflow/repository
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet-version }}
+
+      - name: Replace placeholders
+        uses: JayTechHQ/jaytech-actions/common-replace-placeholders@master
+        with:
+          directory: workflow/repository
+          replacements-in: ${{ inputs.replacements-in }}
+          replacements-out: ${{ secrets.replacements-out }}
+
+      - name: Run .NET Tests
+        uses: JayTechHQ/jaytech-actions/dotnet-test-solution@master
+        with:
+          solution-path: ${{ inputs.solution-location }}
+          azure-feed: ${{ secrets.azure-feed }}
+          azure-source: ${{ secrets.azure-source }}
+          azure-api-key: ${{ secrets.azure-api-key }}
+
+      - name: Determine Semantic Version
+        id: semver
+        uses: JayTechHQ/jaytech-actions/gitversion-generate-semver@master
+
+      - if: ${{ inputs.sync-environment == 'true' }}
+        name: Push Docker Image to AWS
+        uses: JayTechHQ/jaytech-actions/aws-push-docker-image@master
+        with:
+          container-name: ${{ github.event.repository.name }}
+          software-version: ${{ steps.semver.outputs.semantic-version }}
+          aws-access-key-id: ${{ secrets.aws-access-key-id }}
+          aws-secret-access-key: ${{ secrets.aws-secret-access-key }}
+          aws-region: ${{ secrets.aws-region }}
+          dotnet-version: ${{ inputs.dotnet-version }}
+
+      - name: Create GitHub Release
+        if: ${{ inputs.sync-environment == 'true' }}
+        uses: actions/create-release@v1
+        with:
+          draft: false
+          prerelease: ${{ github.ref != 'refs/heads/master' }}
+          release_name: ${{ steps.semver.outputs.semantic-version }}
+          tag_name: ${{ steps.semver.outputs.semantic-version }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.pat-github }}
+
+      - if: ${{ inputs.sync-environment == 'true' }}
+        name: Checkout GitOps repo
+        uses: actions/checkout@v3
+        with:
+          ref: development
+          repository: ${{ github.repository_owner }}/${{ inputs.application-name }}-${{ inputs.environment-name }}
+          token: ${{ secrets.pat-github }}
+          path: workflow/gitops
+
+      - if: ${{ inputs.sync-environment == 'true' }}
+        name: Set GitOps version
+        uses: fjogeleit/yaml-update-action@main
+        with:
+          valueFile: "./workflow/gitops/version-api.yml"
+          propertyPath: "version"
+          value: ${{ steps.semver.outputs.semantic-version }}
+          commitChange: false
+          updateFile: true
+
+      - if: ${{ inputs.sync-environment == 'true' }}
+        name: Push GitOps update
+        id: push_directory
+        uses: cpina/github-action-push-to-another-repository@v1.7.2
+        env:
+          API_TOKEN_GITHUB: ${{ secrets.pat-github }}
+        with:
+          source-directory: workflow/gitops
+          destination-github-username: ${{ github.repository_owner }}
+          destination-repository-name: ${{ inputs.application-name }}-${{ inputs.environment-name }}
+          commit-message: '[API-v${{ steps.semver.outputs.semantic-version }}] - ${{ github.event.head_commit.message }}'
+          target-branch: development
+
+      - name: Clean up old tags and releases
+        if: github.ref == 'refs/heads/master'
+        uses: JayTechHQ/jaytech-actions/github-clean-releases@master
+        with:
+          keep: 10
+          token: ${{ secrets.pat-github }}
+          semantic-version: ${{ steps.semver.outputs.semantic-version }}
+          clean-prereleases: "true"
+          clean-old-releases: "true"

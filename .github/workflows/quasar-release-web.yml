@@ -1,0 +1,136 @@
+name: quasar-release-web
+
+on:
+  workflow_call:
+    inputs:
+      application-name:
+        type: string
+        required: true
+        description: App name, used for environment repo naming
+
+      environment-name:
+        type: string
+        required: false
+        default: environment
+
+      replacements-in:
+        type: string
+        required: false
+        default: ""
+
+      source-folder:
+        type: string
+        required: false
+        default: "./workflow/repository"
+
+      sync-environment:
+        type: string
+        required: false
+        default: "false"
+
+      scope:
+        type: string
+        required: false
+        default: ""
+
+    secrets:
+      pat-github:
+        required: true
+        description: GitHub PAT with access to environment repo and release assets
+
+      replacements-out:
+        required: false
+        description: Placeholder values (tilde-separated)
+
+      scope-key:
+        required: false
+        description: Optional scope key for NPM access or auth headers
+
+jobs:
+  quasar-release-web:
+    name: quasar-release-web
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.pat-github }}
+          path: workflow/repository
+          fetch-depth: 0
+
+      - name: Replace placeholders
+        uses: JayTechHQ/jaytech-actions/common-replace-placeholders@master
+        with:
+          directory: workflow/repository
+          replacements-in: ${{ inputs.replacements-in }}
+          replacements-out: ${{ secrets.replacements-out }}
+
+      - name: Build Quasar Web
+        uses: JayTechHQ/jaytech-actions/quasar-build-web-app@master
+        with:
+          folder: ${{ inputs.source-folder }}
+          scope: ${{ inputs.scope }}
+          scope-key: ${{ secrets.scope-key }}
+
+      - name: Download build output
+        uses: actions/download-artifact@v3
+        with:
+          name: quasar-web-app
+          path: ./output/web
+
+      - name: Create .tar.gz archive
+        run: tar -czvf ./output/web/quasar-web.tar.gz -C ./output/web .
+
+      - name: Determine Semantic Version
+        id: semver
+        uses: JayTechHQ/jaytech-actions/gitversion-generate-semver@master
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        with:
+          draft: false
+          prerelease: false
+          release_name: ${{ steps.semver.outputs.semantic-version }}
+          tag_name: ${{ steps.semver.outputs.semantic-version }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.pat-github }}
+
+      - name: Upload Quasar Web .tar.gz to Release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.pat-github }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./output/web/quasar-web.tar.gz
+          asset_name: quasar-web.tar.gz
+          asset_content_type: application/gzip
+
+      - if: ${{ inputs.sync-environment == 'true' }}
+        name: Setup Git
+        run: |
+          git config --global user.name "jaytech-release-bot"
+          git config --global user.email "release@jaytech.nl"
+
+      - if: ${{ inputs.sync-environment == 'true' }}
+        name: Clone environment repo with token
+        env:
+          GH_TOKEN: ${{ secrets.pat-github }}
+        run: |
+          git clone https://${{ secrets.pat-github }}@github.com/${{ github.repository_owner }}/${{ inputs.application-name }}-${{ inputs.environment-name }}.git workflow/gitops
+          cd workflow/gitops
+          git checkout development || git checkout -b development
+
+      - if: ${{ inputs.sync-environment == 'true' }}
+        name: Update version in GitOps YAML
+        run: |
+          yq eval '.version.ui = "${{ steps.semver.outputs.semantic-version }}"' -i workflow/gitops/version.yml
+
+      - if: ${{ inputs.sync-environment == 'true' }}
+        name: Commit + Push to environment repo
+        run: |
+          cd workflow/gitops
+          git add version.yml
+          git commit -m "Updated UI version to ${{ steps.semver.outputs.semantic-version }}"
+          git push origin development

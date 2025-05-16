@@ -1,0 +1,122 @@
+name: npm-release-package
+
+on:
+  workflow_call:
+    inputs:
+      private-feed:
+        description: Use a private NPM feed?
+        required: false
+        type: string
+        default: "true"
+
+      feed:
+        description: Azure Artifacts feed name
+        required: false
+        type: string
+        default: "jaytech-npm"
+
+      organization:
+        description: Azure DevOps organization name
+        required: false
+        type: string
+        default: "JayTechIT"
+
+      project:
+        description: Azure DevOps project name
+        required: false
+        type: string
+        default: "JayTech"
+
+      scope:
+        description: NPM package scope (e.g., `@jaytech`)
+        required: false
+        type: string
+        default: "jaytech"
+
+      repository:
+        description: GitHub repository name in org/repo format
+        required: true
+        type: string
+
+    secrets:
+      azure-api-key:
+        description: Azure DevOps API key for feed authentication
+        required: false
+
+      azure-feed:
+        description: Full NPM registry URL (e.g., Azure Artifacts registry)
+        required: false
+
+      azure-source:
+        description: Azure source name (if needed)
+        required: false
+
+      pat-github:
+        description: GitHub Personal Access Token
+        required: true
+
+jobs:
+  npm-release-package:
+    name: npm-release-package
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          repository: ${{ inputs.repository }}
+          token: ${{ secrets.pat-github }}
+          path: workflow/repository
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Determine Semantic Version
+        id: semver
+        uses: JayTechHQ/jaytech-actions/gitversion-generate-semver@master
+
+      - name: Replace .npmrc tokens and package version
+        run: |
+          sed -i "s#{{PACKAGE_VERSION}}#${{ steps.semver.outputs.semantic-version }}#g" ./workflow/repository/package.json
+          sed -i "s#{{ORGANIZATION_NAME}}#${{ inputs.organization }}#g" ./workflow/repository/.npmrc
+          sed -i "s#{{PROJECT_NAME}}#${{ inputs.project }}#g" ./workflow/repository/.npmrc
+          sed -i "s#{{FEED_NAME}}#${{ inputs.feed }}#g" ./workflow/repository/.npmrc
+          sed -i "s#{{TOKEN}}#${{ secrets.azure-api-key }}#g" ./workflow/repository/.npmrc
+
+      - name: Apply .npmrc globally
+        run: cp ./workflow/repository/.npmrc ~/.npmrc
+
+      - name: Set scoped NPM registry
+        run: npm config set @${{ inputs.scope }}:registry ${{ secrets.azure-feed }}
+
+      - name: Debug .npmrc
+        run: |
+          echo "=== ~/.npmrc ==="
+          cat ~/.npmrc
+          echo "================"
+
+      - name: Install dependencies
+        working-directory: ./workflow/repository
+        run: npm install --ignore-scripts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.azure-api-key }}
+
+      - name: Publish package
+        working-directory: ./workflow/repository
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.azure-api-key }}
+
+      - name: Tag & Release
+        if: contains('refs/heads/master', github.ref)
+        uses: actions/create-release@v1
+        with:
+          draft: false
+          prerelease: false
+          release_name: ${{ steps.semver.outputs.semantic-version }}
+          tag_name: ${{ steps.semver.outputs.semantic-version }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.pat-github }}

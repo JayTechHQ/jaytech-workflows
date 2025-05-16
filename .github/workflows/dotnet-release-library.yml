@@ -1,0 +1,140 @@
+name: dotnet-release-library
+
+on:
+  workflow_call:
+    inputs:
+      application-name:
+        type: string
+        description: The application name (repository name without api/contract/ui)
+        required: true
+
+      environment-name:
+        type: string
+        description: The keyword used to define your environment repository
+        required: false
+        default: gitops
+
+      repository:
+        type: string
+        description: Repository name in the format org/repo
+        required: true
+
+      solution-location:
+        type: string
+        description: Path to the solution file (relative to root)
+        required: false
+        default: Source/
+
+      replacements-in:
+        type: string
+        description: Placeholder keys (tilde-separated ~)
+        required: false
+        default: ""
+
+      nuget:
+        type: string
+        description: Push to NuGet? If false, will push to Azure Artifacts
+        required: false
+        default: "true"
+
+      dotnet-version:
+        type: string
+        description: .NET version
+        required: false
+        default: "9.x"
+
+    secrets:
+      aws-region:
+        description: AWS region
+        required: true
+      pat-github:
+        description: GitHub PAT
+        required: true
+      replacements-out:
+        description: Placeholder values (tilde-separated ~)
+        required: false
+      azure-api-key:
+        description: Azure DevOps API key
+        required: false
+      azure-source:
+        description: Azure Artifacts NuGet source name
+        required: false
+      azure-feed:
+        description: Azure Artifacts feed URL
+        required: false
+      nuget-api-key:
+        description: NuGet API key
+        required: false
+
+jobs:
+  dotnet-release-library:
+    name: dotnet-release-library
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout target repository
+        uses: actions/checkout@v3
+        with:
+          repository: ${{ inputs.repository }}
+          token: ${{ secrets.pat-github }}
+          path: workflow/repository
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet-version }}
+
+      - name: Replace placeholders
+        uses: JayTechHQ/jaytech-actions/common-replace-placeholders@master
+        with:
+          directory: workflow/repository
+          replacements-in: ${{ inputs.replacements-in }}
+          replacements-out: ${{ secrets.replacements-out }}
+
+      - name: Run .NET Tests
+        uses: JayTechHQ/jaytech-actions/dotnet-test-solution@master
+        with:
+          solution-path: ${{ inputs.solution-location }}
+          azure-feed: ${{ secrets.azure-feed }}
+          azure-source: ${{ secrets.azure-source }}
+          azure-api-key: ${{ secrets.azure-api-key }}
+
+      - name: Determine Semantic Version
+        id: semver
+        uses: JayTechHQ/jaytech-actions/gitversion-generate-semver@master
+
+      - name: Publish NuGet Package
+        uses: JayTechHQ/jaytech-actions/dotnet-publish-nuget-packages@master
+        with:
+          software-version: ${{ steps.semver.outputs.semantic-version }}
+          project-folder: workflow/repository/Source
+          folder-prefix: "Assemblies/"
+          nuget: ${{ inputs.nuget }}
+          dotnet-version: ${{ inputs.dotnet-version }}
+          azure-api-key: ${{ secrets.azure-api-key }}
+          azure-source: ${{ secrets.azure-source }}
+          azure-feed: ${{ secrets.azure-feed }}
+          nuget-api-key: ${{ secrets.nuget-api-key }}
+          add-source: false
+
+      - name: Create GitHub Release
+        if: contains('refs/heads/master', github.ref)
+        uses: actions/create-release@v1
+        with:
+          draft: false
+          prerelease: ${{ github.ref != 'refs/heads/master' }}
+          release_name: ${{ steps.semver.outputs.semantic-version }}
+          tag_name: ${{ steps.semver.outputs.semantic-version }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.pat-github }}
+
+      - name: Cleanup Old Releases & Tags
+        if: github.ref == 'refs/heads/master'
+        uses: JayTechHQ/jaytech-actions/github-clean-releases@master
+        with:
+          keep: 10
+          token: ${{ secrets.pat-github }}
+          semantic-version: ${{ steps.semver.outputs.semantic-version }}
+          clean-prereleases: "true"
+          clean-old-releases: "true"
