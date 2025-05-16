@@ -71,10 +71,10 @@ jobs:
 
       - name: Add JayTech NuGet Feed
         run: |
-          dotnet nuget add source "${{ inputs.azure-source }}" \
-            --name "${{ inputs.azure-feed }}" \
+          dotnet nuget add source "${{ secrets.azure-source }}" \
+            --name "${{ secrets.azure-feed }}" \
             --username "github-actions" \
-            --password "${{ inputs.azure-api-key }}" \
+            --password "${{ secrets.azure-api-key }}" \
             --store-password-in-clear-text
 
       - name: Run Client Generator
