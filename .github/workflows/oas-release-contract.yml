@@ -83,7 +83,7 @@ jobs:
           sed -i "s~{{IN}}~../../../../../workflow/repository/src/oas.yaml~g" ./workflow/client-generator/Source/Assemblies/JayTech.Clis.ClientGeneration/Properties/launchSettings.json
           sed -i "s~{{OUT}}~../../../../../workflow/repository/generated~g" ./workflow/client-generator/Source/Assemblies/JayTech.Clis.ClientGeneration/Properties/launchSettings.json
           sed -i "s~{{NAMESPACE}}~${{ inputs.namespace }}~g" ./workflow/client-generator/Source/Assemblies/JayTech.Clis.ClientGeneration/Properties/launchSettings.json
-          sed -i "s~{{AZURE_API_KEY}}~${{ secrets.azure-api-key }}~g" ./workflow/client-generator/Source/nuget.config
+          sed -i "s~{{AZURE_API_KEY}}~${{ secrets.azure-api-key }}~g" ./workflow/client-generator/nuget.config
           cd ./workflow/client-generator/Source/Assemblies/JayTech.Clis.ClientGeneration
           dotnet run --launch-profile Production
 
