@@ -72,7 +72,7 @@ jobs:
       - name: Add JayTech NuGet Feed
         run: |
           dotnet nuget add source "${{ inputs.azure_source }}" \
-            --name "${{ inputs.azure_feed }} \
+            --name "${{ inputs.azure_feed }}" \
             --username "github-actions" \
             --password "${{ inputs.azure_api_key }}" \
             --store-password-in-clear-text
