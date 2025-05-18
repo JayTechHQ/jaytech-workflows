@@ -100,16 +100,23 @@ jobs:
         run: |
           tar -czvf quasar-web.tar.gz ./*
 
-      - name: Create GitHub Release (and upload asset)
-        working-directory: workflow/repository/dist/spa
+      - name: Create GitHub Release
+        working-directory: workflow/repository
         env:
           GH_TOKEN: ${{ secrets.pat-github }}
         run: |
           gh release create "${{ steps.semver.outputs.semantic-version }}" \
             --title "${{ steps.semver.outputs.semantic-version }}" \
             --notes "" \
-            $([[ "${{ github.ref }}" != "refs/heads/master" ]] && echo "--prerelease") \
-            quasar-web.tar.gz --clobber
+            $([[ "${{ github.ref }}" != "refs/heads/master" ]] && echo "--prerelease") || echo "⚠️ Release already exists, continuing..."
+
+      - name: Upload quasar-web.tar.gz
+        working-directory: workflow/repository/dist/spa
+        env:
+          GH_TOKEN: ${{ secrets.pat-github }}
+        run: |
+          gh release upload "${{ steps.semver.outputs.semantic-version }}" quasar-web.tar.gz --clobber
+
 
       - if: ${{ inputs.sync-environment == 'true' }}
         name: Checkout GitOps repo
