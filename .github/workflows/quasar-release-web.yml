@@ -91,51 +91,25 @@ jobs:
         run: |
           npm install
           npm i -g @quasar/cli
-          # Run ESLint but ignore errors
           npm run lint || true
           quasar build
         shell: bash
         
-      - name: Create release using GitHub CLI
-        working-directory: workflow/repository
+      - name: TAR Web Output
+        working-directory: workflow/repository/dist/spa
+        run: |
+          tar -czvf quasar-web.tar.gz ./*
+
+      - name: Create GitHub Release (and upload asset)
+        working-directory: workflow/repository/dist/spa
         env:
           GH_TOKEN: ${{ secrets.pat-github }}
         run: |
           gh release create "${{ steps.semver.outputs.semantic-version }}" \
             --title "${{ steps.semver.outputs.semantic-version }}" \
             --notes "" \
-            $([[ "${{ github.ref }}" != "refs/heads/master" ]] && echo "--prerelease")
-      
-      - name: Add build output to release
-        working-directory: workflow/repository/dist/spa
-        env:
-          GH_TOKEN: ${{ secrets.pat-github }}
-        run: |
-          gh release upload "${{ steps.semver.outputs.semantic-version }}" quasar-web.tar.gz --clobber
-
-    
-      - name: Create GitHub Release
-        id: create_release
-        uses: actions/create-release@v1
-        with:
-          draft: false
-          prerelease: false
-          release_name: ${{ steps.semver.outputs.semantic-version }}
-          tag_name: ${{ steps.semver.outputs.semantic-version }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.pat-github }}
-
-      - name: Upload Quasar Web .tar.gz to Release
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.pat-github }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./output/web/quasar-web.tar.gz
-          asset_name: quasar-web.tar.gz
-          asset_content_type: application/gzip
-
-      
+            $([[ "${{ github.ref }}" != "refs/heads/master" ]] && echo "--prerelease") \
+            quasar-web.tar.gz --clobber
 
       - if: ${{ inputs.sync-environment == 'true' }}
         name: Checkout GitOps repo
