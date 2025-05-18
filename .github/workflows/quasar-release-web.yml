@@ -65,27 +65,54 @@ jobs:
           directory: workflow/repository
           replacements-in: ${{ inputs.replacements-in }}
           replacements-out: ${{ secrets.replacements-out }}
-
-      - name: Build Quasar Web
-        uses: JayTechHQ/jaytech-actions/quasar-build-web-app@master
-        with:
-          folder: ${{ inputs.source-folder }}
-          scope: ${{ inputs.scope }}
-          scope-key: ${{ secrets.scope-key }}
-
-      - name: Download build output
-        uses: actions/download-artifact@v3
-        with:
-          name: quasar-web-app
-          path: ./output/web
-
-      - name: Create .tar.gz archive
-        run: tar -czvf ./output/web/quasar-web.tar.gz -C ./output/web .
-
+          
       - name: Determine Semantic Version
         id: semver
         uses: JayTechHQ/jaytech-actions/gitversion-generate-semver@master
 
+      - name: Use project-level .npmrc if present
+        run: |
+          if [ -f "workflow/repository/.npmrc" ]; then
+            echo "Using repo .npmrc"
+            cp "workflow/repository/.npmrc" ~/.npmrc
+            cat ~/.npmrc
+          else
+            echo "No .npmrc found in project"
+          fi
+        shell: bash
+
+      - name: Install NodeJS
+        uses: actions/setup-node@v1
+        with:
+          node-version: 20
+          
+      - name: Quasar Build Web
+        working-directory: workflow/repository
+        run: |
+          npm install
+          npm i -g @quasar/cli
+          # Run ESLint but ignore errors
+          npm run lint || true
+          quasar build
+        shell: bash
+        
+      - name: Create release using GitHub CLI
+        working-directory: workflow/repository
+        run: |
+          gh release create "${{ steps.semver.outputs.semantic-version }}" \
+            --title "${{ steps.semver.outputs.semantic-version }}" \
+            --notes "" \
+            $([[ "${{ github.ref }}" != "refs/heads/master" ]] && echo "--prerelease")
+            
+      - name: TAR WEB
+        run: |
+          tar -czvf workflow/repository/dist/spa/quasar-web.tar.gz workflow/repository/dist/spa/*
+          
+      - name: Add build output to release
+        working-directory: workflow/repository/dist/spa
+        run: |
+          gh release upload "${{ steps.semver.outputs.semantic-version }}" quasar-web.tar.gz --clobber
+    
       - name: Create GitHub Release
         id: create_release
         uses: actions/create-release@v1
@@ -107,30 +134,46 @@ jobs:
           asset_name: quasar-web.tar.gz
           asset_content_type: application/gzip
 
-      - if: ${{ inputs.sync-environment == 'true' }}
-        name: Setup Git
-        run: |
-          git config --global user.name "jaytech-release-bot"
-          git config --global user.email "release@jaytech.nl"
+      
 
       - if: ${{ inputs.sync-environment == 'true' }}
-        name: Clone environment repo with token
+        name: Checkout GitOps repo
+        uses: actions/checkout@v3
+        with:
+          ref: development
+          repository: ${{ github.repository_owner }}/${{ inputs.application-name }}-${{ inputs.environment-name }}
+          token: ${{ secrets.pat-github }}
+          path: workflow/gitops
+
+      - if: ${{ inputs.sync-environment == 'true' }}
+        name: Set GitOps version
+        uses: fjogeleit/yaml-update-action@main
+        with:
+          valueFile: "./workflow/gitops/version-api.yml"
+          propertyPath: "version"
+          value: ${{ steps.semver.outputs.semantic-version }}
+          commitChange: false
+          updateFile: true
+
+      - if: ${{ inputs.sync-environment == 'true' }}
+        name: Push GitOps update
+        id: push_directory
+        uses: cpina/github-action-push-to-another-repository@v1.7.2
         env:
-          GH_TOKEN: ${{ secrets.pat-github }}
-        run: |
-          git clone https://${{ secrets.pat-github }}@github.com/${{ github.repository_owner }}/${{ inputs.application-name }}-${{ inputs.environment-name }}.git workflow/gitops
-          cd workflow/gitops
-          git checkout development || git checkout -b development
+          API_TOKEN_GITHUB: ${{ secrets.pat-github }}
+        with:
+          source-directory: workflow/gitops
+          destination-github-username: ${{ github.repository_owner }}
+          destination-repository-name: ${{ inputs.application-name }}-${{ inputs.environment-name }}
+          commit-message: '[API-v${{ steps.semver.outputs.semantic-version }}] - ${{ github.event.head_commit.message }}'
+          target-branch: development
 
-      - if: ${{ inputs.sync-environment == 'true' }}
-        name: Update version in GitOps YAML
-        run: |
-          yq eval '.version.ui = "${{ steps.semver.outputs.semantic-version }}"' -i workflow/gitops/version.yml
-
-      - if: ${{ inputs.sync-environment == 'true' }}
-        name: Commit + Push to environment repo
-        run: |
-          cd workflow/gitops
-          git add version.yml
-          git commit -m "Updated UI version to ${{ steps.semver.outputs.semantic-version }}"
-          git push origin development
+      - name: Clean up old tags and releases
+        if: github.ref == 'refs/heads/master'
+        uses: JayTechHQ/jaytech-actions/github-clean-releases@master
+        with:
+          keep: 10
+          token: ${{ secrets.pat-github }}
+          semantic-version: ${{ steps.semver.outputs.semantic-version }}
+          clean-prereleases: "true"
+          clean-old-releases: "true"
