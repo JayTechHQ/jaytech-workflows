@@ -98,20 +98,21 @@ jobs:
         
       - name: Create release using GitHub CLI
         working-directory: workflow/repository
+        env:
+          GH_TOKEN: ${{ secrets.pat-github }}
         run: |
           gh release create "${{ steps.semver.outputs.semantic-version }}" \
             --title "${{ steps.semver.outputs.semantic-version }}" \
             --notes "" \
             $([[ "${{ github.ref }}" != "refs/heads/master" ]] && echo "--prerelease")
-            
-      - name: TAR WEB
-        run: |
-          tar -czvf workflow/repository/dist/spa/quasar-web.tar.gz workflow/repository/dist/spa/*
-          
+      
       - name: Add build output to release
         working-directory: workflow/repository/dist/spa
+        env:
+          GH_TOKEN: ${{ secrets.pat-github }}
         run: |
           gh release upload "${{ steps.semver.outputs.semantic-version }}" quasar-web.tar.gz --clobber
+
     
       - name: Create GitHub Release
         id: create_release
