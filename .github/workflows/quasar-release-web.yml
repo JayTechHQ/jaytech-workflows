@@ -131,7 +131,7 @@ jobs:
         name: Set GitOps version
         uses: fjogeleit/yaml-update-action@main
         with:
-          valueFile: "./workflow/gitops/version-api.yml"
+          valueFile: "./workflow/gitops/version-ui.yml"
           propertyPath: "version"
           value: ${{ steps.semver.outputs.semantic-version }}
           commitChange: false
