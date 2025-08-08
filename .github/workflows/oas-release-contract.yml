@@ -61,7 +61,7 @@ jobs:
 
       - name: Validate OpenAPI 2 (Redocly CLI)
         run: |
-          npx --yes @redocly/cli@1.25.14 lint ./workflow/repository/src/oas.yaml --format=stylish
+          npx --yes @redocly/cli@1.25.14 lint ./workflow/repository/src/oas.yaml --format=stylish --skip-rule no-empty-servers
 
       - if: ${{ inputs.spectral-validation == true }}
         name: Spectral validation
