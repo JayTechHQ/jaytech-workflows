@@ -55,6 +55,14 @@ jobs:
         run: |
           sed -i "s/{{OAS_VERSION}}/${{ steps.semver.outputs.semantic-version }}/g" ./workflow/repository/src/oas.yaml
 
+      - name: Validate OpenAPI (OpenAPI Generator)
+        run: |
+          npx --yes @openapitools/openapi-generator-cli@2.16.3 validate -i ./workflow/repository/src/oas.yaml
+
+      - name: Validate OpenAPI 2 (Redocly CLI)
+        run: |
+          npx --yes @redocly/cli@1.25.14 lint ./workflow/repository/src/oas.yaml --format=stylish
+
       - if: ${{ inputs.spectral-validation == true }}
         name: Spectral validation
         run: |
