@@ -76,7 +76,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20.19.0'
-          cache: 'yarn'
+          cache: 'yarn.lock'
 
       - name: Determine Semantic Version
         id: semver
