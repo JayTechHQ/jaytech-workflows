@@ -108,6 +108,10 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.azure-api-key }}
 
+      - name: Build package
+        working-directory: ./workflow/repository
+        run: npm run build
+
       - name: Publish package
         working-directory: ./workflow/repository
         run: npm publish
