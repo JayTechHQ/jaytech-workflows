@@ -84,7 +84,7 @@ jobs:
           sed -i "s#{{ORGANIZATION_NAME}}#${{ inputs.organization }}#g" ./workflow/repository/.npmrc
           sed -i "s#{{PROJECT_NAME}}#${{ inputs.project }}#g" ./workflow/repository/.npmrc
           sed -i "s#{{FEED_NAME}}#${{ inputs.feed }}#g" ./workflow/repository/.npmrc
-          sed -i "s#{{TOKEN}}#${{ secrets.azure-api-key }}#g" ./workflow/repository/.npmrc
+          sed -i "s#{{TOKEN}}#${{ secrets.azure-api-key-base64 }}#g" ./workflow/repository/.npmrc
 
       - name: Apply .npmrc globally
         run: cp ./workflow/repository/.npmrc ~/.npmrc
