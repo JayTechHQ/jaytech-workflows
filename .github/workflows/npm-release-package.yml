@@ -42,6 +42,10 @@ on:
       azure-api-key:
         description: Azure DevOps API key for feed authentication
         required: false
+        
+      azure-api-key-base-64:
+        description: Azure DevOps API key for feed authentication (base 64)
+        required: false
 
       azure-feed:
         description: Full NPM registry URL (e.g., Azure Artifacts registry)
